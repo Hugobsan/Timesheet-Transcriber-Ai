@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop';
-import { XMarkIcon, RotateClockwiseIcon, RotateCounterClockwiseIcon } from './icons';
+import { XMarkIcon, RotateClockwiseIcon, RotateCounterClockwiseIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from './icons';
 
 interface ImageEditorModalProps {
     isOpen: boolean;
@@ -24,7 +24,6 @@ function getCroppedImg(
         return Promise.reject(new Error('Failed to get canvas context'));
     }
 
-    const BORDER_RADIUS = 0; // Set to a value if you want rounded corners
     const cropX = crop.x * scaleX;
     const cropY = crop.y * scaleY;
     const cropWidth = crop.width * scaleX;
@@ -80,6 +79,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
     const [imgSrc, setImgSrc] = useState('');
     const [crop, setCrop] = useState<Crop>();
     const [rotation, setRotation] = useState(0);
+    const [scale, setScale] = useState(1);
     const [isProcessing, setIsProcessing] = useState(false);
     const imgRef = useRef<HTMLImageElement>(null);
 
@@ -88,6 +88,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         const objectUrl = URL.createObjectURL(imageFile);
         setImgSrc(objectUrl);
         setRotation(0);
+        setScale(1);
         setCrop(undefined); // Reset crop on new image
         return () => URL.revokeObjectURL(objectUrl);
     }, [imageFile]);
@@ -121,6 +122,8 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         }
         setIsProcessing(true);
         try {
+            // Note: The getCroppedImg function works on the original image dimensions,
+            // so the visual scale doesn't need to be passed to it.
             const blob = await getCroppedImg(imgRef.current, crop, rotation);
             if (blob) {
                 const newFileName = `${imageFile.name.split('.').slice(0, -1).join('.')}-edited.png`;
@@ -146,7 +149,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
                     </button>
                 </header>
 
-                <main className="flex-grow p-4 overflow-hidden bg-gray-100 flex items-center justify-center">
+                <main className="flex-grow p-4 overflow-auto bg-gray-100 flex items-center justify-center">
                     {imgSrc && (
                         <ReactCrop
                             crop={crop}
@@ -157,7 +160,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
                                 ref={imgRef}
                                 src={imgSrc}
                                 alt="Crop preview"
-                                style={{ transform: `rotate(${rotation}deg)`, maxHeight: '70vh' }}
+                                style={{ transform: `scale(${scale}) rotate(${rotation}deg)`, maxHeight: '70vh' }}
                                 onLoad={onImageLoad}
                             />
                         </ReactCrop>
@@ -173,6 +176,26 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
                             <RotateClockwiseIcon className="w-6 h-6" />
                         </button>
                     </div>
+
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setScale(s => Math.max(0.5, s - 0.1))} className="p-1 text-gray-600 rounded-full hover:bg-gray-200 transition-colors">
+                            <MagnifyingGlassMinusIcon className="w-5 h-5"/>
+                        </button>
+                        <input
+                            type="range"
+                            min="0.5"
+                            max="3"
+                            step="0.01"
+                            value={scale}
+                            onChange={(e) => setScale(parseFloat(e.target.value))}
+                            className="w-32 md:w-40 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#69AD49]"
+                            title={`Zoom: ${Math.round(scale * 100)}%`}
+                        />
+                         <button onClick={() => setScale(s => Math.min(3, s + 0.1))} className="p-1 text-gray-600 rounded-full hover:bg-gray-200 transition-colors">
+                            <MagnifyingGlassPlusIcon className="w-5 h-5"/>
+                        </button>
+                    </div>
+
                     <div className="flex items-center">
                         <button onClick={onClose} className="px-4 py-2 text-gray-700 font-semibold rounded-md hover:bg-gray-200 transition-colors mr-3">
                             Cancelar
@@ -182,7 +205,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
                             disabled={isProcessing}
                             className="px-5 py-2 bg-[#69AD49] text-white font-semibold rounded-md hover:bg-[#5a9a3f] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                         >
-                            {isProcessing ? 'Processando...' : 'Confirmar Corte'}
+                            {isProcessing ? 'Processando...' : 'Confirmar'}
                         </button>
                     </div>
                 </footer>

@@ -359,7 +359,7 @@ const App: React.FC = () => {
 
     return (
         <div className="bg-[#f9f9f9] text-[#1B5E20] min-h-screen font-sans flex flex-col">
-            <main className="max-w-7xl mx-auto p-4 md:p-8 w-full flex-grow">
+            <main className="max-w-4xl mx-auto p-4 md:p-8 w-full flex-grow">
                 <header className="text-center mb-8">
                     <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#1B5E20] to-[#69AD49]">
                         Transcritor de Cartão de Ponto com IA
@@ -440,8 +440,8 @@ const App: React.FC = () => {
                     onSave={handleSaveSettings}
                 />
 
-                <div className="grid lg:grid-cols-2 gap-8">
-                    {/* Upload Column */}
+                <div className="space-y-8">
+                    {/* Upload Section */}
                     <div className="flex flex-col space-y-4">
                         <h2 className="text-xl font-semibold text-gray-800">1. Fila de Upload</h2>
                         <div 
@@ -500,7 +500,7 @@ const App: React.FC = () => {
                         </button>
                     </div>
 
-                    {/* Results Column */}
+                    {/* Results Section */}
                     <div className="flex flex-col space-y-4">
                          <div className="flex justify-between items-center">
                             <h2 className="text-xl font-semibold text-gray-800">2. Resultados</h2>
