@@ -1,0 +1,5 @@
+{
+  "name": "Timesheet Transcriber AI",
+  "description": "An application to transcribe timesheet images into Markdown using the Gemini API. Users can configure the API Key, system prompt, and temperature.",
+  "requestFramePermissions": []
+}
