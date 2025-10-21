@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 import { SettingsIcon, ChevronDownIcon } from './icons';
 
@@ -47,14 +49,14 @@ export const Settings: React.FC<SettingsProps> = ({
                     <div className="space-y-6">
                         <div>
                             <label htmlFor="apiKey" className="block text-sm font-medium text-gray-700 mb-1">
-                                Chave da API Gemini
+                                Chave de API Gemini
                             </label>
                             <input
                                 type="password"
                                 id="apiKey"
                                 value={apiKey}
                                 onChange={(e) => setApiKey(e.target.value)}
-                                placeholder="Cole sua chave da API aqui"
+                                placeholder="Cole sua chave de API aqui"
                                 className="w-full bg-gray-50 border border-gray-300 rounded-md px-3 py-2 text-gray-900 focus:ring-2 focus:ring-[#69AD49] focus:border-[#69AD49] transition"
                             />
                         </div>

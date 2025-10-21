@@ -1,3 +1,5 @@
+
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE } from './constants';
@@ -61,14 +63,14 @@ const fileToGenerativePart = async (file: File) => {
 
 const App: React.FC = () => {
     // Persisted settings
-    const [apiKey, setApiKey] = useLocalStorage<string>('gemini_api_key', '');
+    const [persistedApiKey, setPersistedApiKey] = useLocalStorage<string>('gemini_api_key', '');
     const [persistedSystemPrompt, setPersistedSystemPrompt] = useLocalStorage<string>('gemini_system_prompt', DEFAULT_SYSTEM_PROMPT);
     const [persistedTemperature, setPersistedTemperature] = useLocalStorage<number>('gemini_temperature', DEFAULT_TEMPERATURE);
     const [persistedModel, setPersistedModel] = useLocalStorage<string>('gemini_model', 'gemini-flash-latest');
     const [availableModels, setAvailableModels] = useLocalStorage<string[]>('gemini_available_models', ['gemini-flash-latest']);
 
     // Temporary settings state for the modal
-    const [tempApiKey, setTempApiKey] = useState(apiKey);
+    const [tempApiKey, setTempApiKey] = useState(persistedApiKey);
     const [tempSystemPrompt, setTempSystemPrompt] = useState(persistedSystemPrompt);
     const [tempTemperature, setTempTemperature] = useState(persistedTemperature);
     const [tempModel, setTempModel] = useState(persistedModel);
@@ -85,6 +87,7 @@ const App: React.FC = () => {
     const [currentFileToEdit, setCurrentFileToEdit] = useState<StagedFile | null>(null);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [isFaqOpen, setIsFaqOpen] = useState(false);
+    const [collapsedResults, setCollapsedResults] = useState<Set<string>>(new Set());
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,11 +100,11 @@ const App: React.FC = () => {
 
     useEffect(() => {
         // Sync temp settings when persisted ones change
-        setTempApiKey(apiKey);
+        setTempApiKey(persistedApiKey);
         setTempSystemPrompt(persistedSystemPrompt);
         setTempTemperature(persistedTemperature);
         setTempModel(persistedModel);
-    }, [apiKey, persistedSystemPrompt, persistedTemperature, persistedModel]);
+    }, [persistedApiKey, persistedSystemPrompt, persistedTemperature, persistedModel]);
     
     // Cleanup blob URLs on unmount
     useEffect(() => {
@@ -111,7 +114,7 @@ const App: React.FC = () => {
     }, [stagedFiles]);
 
     const handleSaveSettings = () => {
-        setApiKey(tempApiKey);
+        setPersistedApiKey(tempApiKey);
         setPersistedSystemPrompt(tempSystemPrompt);
         setPersistedTemperature(tempTemperature);
         setPersistedModel(tempModel);
@@ -128,7 +131,8 @@ const App: React.FC = () => {
         const files = event.target.files;
         if (!files) return;
 
-        const allFiles = Array.from(files);
+        // Fix: Explicitly type allFiles to ensure correct type inference for file properties.
+        const allFiles: File[] = Array.from(files);
         const imageFiles = allFiles.filter(file => file.type.startsWith('image/'));
         const pdfFiles = allFiles.filter(file => file.type === 'application/pdf');
         
@@ -217,13 +221,26 @@ const App: React.FC = () => {
         handleCloseEditor();
     };
 
+    const toggleCollapse = (id: string) => {
+        setCollapsedResults(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) {
+                newSet.delete(id);
+            } else {
+                newSet.add(id);
+            }
+            return newSet;
+        });
+    };
+
     const handleTranscribe = useCallback(async () => {
         if (stagedFiles.length === 0) {
             setError('Por favor, selecione ao menos um arquivo de imagem.');
             return;
         }
-        if (!apiKey) {
-            setError('Por favor, configure sua chave da API Gemini nas configurações.');
+
+        if (!persistedApiKey) {
+            setError('Por favor, configure sua chave de API do Gemini na seção de Configuração.');
             setSettingsOpen(true);
             return;
         }
@@ -237,13 +254,13 @@ const App: React.FC = () => {
             try {
                 const imagePart = await fileToGenerativePart(stagedFile.file);
                 const result = await transcribeImage({
-                    apiKey: apiKey,
+                    apiKey: persistedApiKey,
                     systemPrompt: persistedSystemPrompt,
                     temperature: persistedTemperature,
                     model: persistedModel,
                     image: imagePart,
                 });
-                const cleanMarkdown = result.replace(/^```markdown\s*|```\s*|\s*```$/g, '');
+                const cleanMarkdown = result.replace(/^(```(?:markdown)?\s*)|(\s*```)$/g, '').trim();
                 setTranscriptions(prev => [...prev, { id: stagedFile.id, fileName: stagedFile.file.name, markdown: cleanMarkdown }]);
             } catch (e) {
                 console.error(e);
@@ -256,7 +273,7 @@ const App: React.FC = () => {
 
         setProcessingStatus({ isProcessing: false, total: stagedFiles.length, completed: stagedFiles.length, currentFileName: null });
         setStagedFiles([]); // Clear the queue after processing
-    }, [stagedFiles, apiKey, persistedSystemPrompt, persistedTemperature, persistedModel]);
+    }, [stagedFiles, persistedApiKey, persistedSystemPrompt, persistedTemperature, persistedModel]);
 
     const handleCopy = (id: string) => {
         const transcriptionToCopy = transcriptions.find(t => t.id === id);
@@ -331,7 +348,7 @@ const App: React.FC = () => {
                 const tableData = parseMarkdownTable(t.markdown);
                 if (tableData.length > 0) {
                     const ws = window.XLSX.utils.aoa_to_sheet(tableData);
-                    const sheetName = t.fileName.replace(/[\\/*?:"<>|]/g, '').substring(0, 31);
+                    const sheetName = t.fileName.replace(/[\\\/\*\?:"<>|]/g, '').substring(0, 31);
                     window.XLSX.utils.book_append_sheet(wb, ws, sheetName);
                 }
             });
@@ -414,10 +431,10 @@ const App: React.FC = () => {
                                 <details>
                                     <summary className="font-semibold cursor-pointer text-gray-700">Onde configuro minha chave de API?</summary>
                                     <p className="mt-2 text-gray-600">
-                                        Clique no painel "Configuração". Lá você poderá inserir sua chave de API do Gemini, alterar o modelo de IA, ajustar o prompt do sistema e a "temperatura" para controlar a criatividade da resposta. Lembre-se de salvar suas configurações.
+                                        Você precisa configurar sua própria chave de API do Gemini para usar esta aplicação. Abra a seção "Configuração" abaixo, cole sua chave de API no campo correspondente e clique em "Salvar Configurações". A chave será salva localmente no seu navegador para uso futuro.
                                     </p>
                                     <p className="mt-2 text-gray-600">
-                                        Você pode criar sua chave de API no <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[#69AD49] hover:underline font-medium">Google AI Studio</a>. A cobrança é feita diretamente pelo Google, e muitos modelos oferecem um nível de uso gratuito.
+                                        Você pode criar sua chave de API gratuitamente no <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[#69AD49] hover:underline font-medium">Google AI Studio</a>. A cobrança pelo uso da API é feita diretamente pelo Google, e muitos modelos oferecem um generoso nível de uso gratuito.
                                     </p>
                                 </details>
                             </div>
@@ -522,57 +539,64 @@ const App: React.FC = () => {
                                     Os resultados aparecerão aqui.
                                 </div>
                             )}
-                            {transcriptions.map(result => (
+                            {transcriptions.map(result => {
+                                const isCollapsed = collapsedResults.has(result.id);
+                                return (
                                 <div key={result.id} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-                                    <div className="flex justify-between items-center mb-2 pb-2 border-b">
+                                    <div className="flex justify-between items-center pb-2 border-b">
                                         <h3 className="font-semibold text-gray-700 truncate" title={result.fileName}>{result.fileName}</h3>
-                                        {!result.error && (
-                                            <button onClick={() => handleCopy(result.id)} title="Copiar Transcrição" className="text-[#69AD49] hover:text-[#1B5E20] transition-colors p-1 rounded-md">
-                                                {result.copied ? <CheckIcon className="w-5 h-5"/> : <CopyIcon className="w-5 h-5"/>}
+                                        <div className="flex items-center gap-2">
+                                            {!result.error && (
+                                                <button onClick={() => handleCopy(result.id)} title="Copiar Transcrição" className="text-[#69AD49] hover:text-[#1B5E20] transition-colors p-1 rounded-md">
+                                                    {result.copied ? <CheckIcon className="w-5 h-5"/> : <CopyIcon className="w-5 h-5"/>}
+                                                </button>
+                                            )}
+                                            <button onClick={() => toggleCollapse(result.id)} title={isCollapsed ? "Expandir" : "Minimizar"} className="text-gray-500 hover:text-gray-800 transition-colors p-1 rounded-md">
+                                                <ChevronDownIcon className={`w-5 h-5 transition-transform ${isCollapsed ? '' : 'rotate-180'}`} />
                                             </button>
-                                        )}
+                                        </div>
                                     </div>
-                                    {renderTranscriptionResult(result)}
+                                    {!isCollapsed && (
+                                        <div className="pt-2">
+                                            {renderTranscriptionResult(result)}
+                                        </div>
+                                    )}
                                 </div>
-                            ))}
+                            )})}
                              {processingStatus.isProcessing && processingStatus.completed < processingStatus.total && (
                                 <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm opacity-60">
-                                    <p className="text-gray-600 mb-4">Transcrevendo: <span className="font-medium">{processingStatus.currentFileName}</span>...</p>
+                                    <p className="text-gray-600 mb-4">Aguardando transcrição para os arquivos restantes...</p>
                                     <SkeletonLoader />
-                                 </div>
-                             )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
-            </main>
-            <footer className="text-center py-4 border-t border-gray-200 bg-white">
-                <p className="text-sm text-gray-500">
-                    Criado por <a href="https://github.com/Hugobsan/" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#1B5E20] hover:text-[#69AD49] transition-colors">Hugo Barbosa</a>
-                </p>
-            </footer>
-             {isPdfModalOpen && currentPdfFile && (
-                <PdfSelectionModal
-                    isOpen={isPdfModalOpen}
-                    onClose={handleClosePdfModal}
-                    onConfirm={handlePdfPagesSelected}
-                    pdfFile={currentPdfFile}
-                />
-            )}
-            {isEditorModalOpen && currentFileToEdit && (
-                <ImageEditorModal
-                    isOpen={isEditorModalOpen}
-                    onClose={handleCloseEditor}
-                    onConfirm={handleImageEdited}
-                    imageFile={currentFileToEdit.file}
-                />
-            )}
-            {isExportModalOpen && (
+
+                {isPdfModalOpen && currentPdfFile && (
+                    <PdfSelectionModal 
+                        isOpen={isPdfModalOpen}
+                        pdfFile={currentPdfFile}
+                        onClose={handleClosePdfModal}
+                        onConfirm={handlePdfPagesSelected}
+                    />
+                )}
+
+                {isEditorModalOpen && currentFileToEdit && (
+                    <ImageEditorModal
+                        isOpen={isEditorModalOpen}
+                        imageFile={currentFileToEdit.file}
+                        onClose={handleCloseEditor}
+                        onConfirm={handleImageEdited}
+                    />
+                )}
+                
                 <ExportModal
                     isOpen={isExportModalOpen}
                     onClose={() => setIsExportModalOpen(false)}
                     onExport={handleExport}
                 />
-            )}
+            </main>
         </div>
     );
 };

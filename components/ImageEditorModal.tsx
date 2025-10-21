@@ -16,19 +16,20 @@ function getCroppedImg(
     rotation = 0
 ): Promise<Blob | null> {
     const canvas = document.createElement('canvas');
-    const scaleX = image.naturalWidth / image.width;
-    const scaleY = image.naturalHeight / image.height;
-    
     const ctx = canvas.getContext('2d');
+
     if (!ctx) {
         return Promise.reject(new Error('Failed to get canvas context'));
     }
 
+    const scaleX = image.naturalWidth / image.width;
+    const scaleY = image.naturalHeight / image.height;
+    
     const cropX = crop.x * scaleX;
     const cropY = crop.y * scaleY;
     const cropWidth = crop.width * scaleX;
     const cropHeight = crop.height * scaleY;
-    
+
     // Set canvas size to match the rotated crop size
     if (rotation === 90 || rotation === 270) {
         canvas.width = cropHeight;
@@ -38,25 +39,26 @@ function getCroppedImg(
         canvas.height = cropHeight;
     }
 
-    // Translate and rotate context
+    // Move the rotation point to the center of the canvas
     ctx.translate(canvas.width / 2, canvas.height / 2);
+    
+    // Rotate the canvas
     ctx.rotate((rotation * Math.PI) / 180);
-    ctx.translate(-image.naturalWidth / 2, -image.naturalHeight / 2);
 
-    // Draw the image
+    // Draw the cropped portion of the source image onto the rotated canvas.
+    // The destination x, y coordinates are relative to the translated/rotated origin,
+    // so we draw at (-cropWidth/2, -cropHeight/2) to center the crop in the canvas.
     ctx.drawImage(
         image,
-        0, 0,
-        image.naturalWidth, image.naturalHeight
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        -cropWidth / 2,
+        -cropHeight / 2,
+        cropWidth,
+        cropHeight
     );
-    
-    // Get the cropped image data from the rotated image
-    const data = ctx.getImageData(cropX, cropY, cropWidth, cropHeight);
-    
-    // Clear canvas and reset transformations
-    canvas.width = cropWidth;
-    canvas.height = cropHeight;
-    ctx.putImageData(data, 0, 0);
 
     return new Promise((resolve, reject) => {
         canvas.toBlob(blob => {

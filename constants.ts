@@ -46,6 +46,7 @@ Isso deve virar:
 - Nunca especule fora de padrões claramente identificáveis.
 - Nunca inclua comentários ou descrições.
 - Nunca modifique ou interprete textos além do necessário para padronização (ex: horários, formatação de tabelas).
+- NUNCA adicione linhas em branco desnecessárias, especialmente no final da transcrição. Sua resposta deve terminar imediatamente após a última linha da tabela.
 
 # Few-shot Example
 Exemplo:
