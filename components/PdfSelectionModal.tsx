@@ -43,7 +43,8 @@ export const PdfSelectionModal: React.FC<PdfSelectionModalProps> = ({
         setIsLoading(true);
         try {
             const filePromises = Array.from(selectedPages).map(pageNumber => {
-                const previewUrl = pagePreviews[pageNumber - 1];
+                // Fix: Explicitly cast pageNumber to a number before arithmetic operation to resolve a TypeScript type error.
+                const previewUrl = pagePreviews[Number(pageNumber) - 1];
                 const fileName = `${pdfFile.name.replace('.pdf', '')}-page-${pageNumber}.png`;
                 return dataUrlToFile(previewUrl, fileName);
             });

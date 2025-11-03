@@ -6,7 +6,7 @@ import { DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE } from './constants';
 import { transcribeImage } from './services/geminiService';
 import { Settings } from './components/Settings';
 import { SkeletonLoader } from './components/Spinner';
-import { UploadIcon, CopyIcon, CheckIcon, XCircleIcon, CropIcon, ChevronDownIcon } from './components/icons';
+import { UploadIcon, CopyIcon, CheckIcon, XCircleIcon, CropIcon, ChevronDownIcon, ClipboardIcon } from './components/icons';
 import { PdfSelectionModal } from './components/PdfSelectionModal';
 import { ImageEditorModal } from './components/ImageEditorModal';
 import { ExportModal, ExportFormat } from './components/ExportModal';
@@ -231,6 +231,53 @@ const App: React.FC = () => {
             }
             return newSet;
         });
+    };
+
+    const handlePasteFromClipboard = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!navigator.clipboard?.read) {
+            setError('Seu navegador não suporta colar da área de transferência. Por favor, utilize um navegador moderno como Chrome, Edge ou Firefox.');
+            return;
+        }
+
+        try {
+            const clipboardItems = await navigator.clipboard.read();
+            let imageFile: File | null = null;
+
+            for (const item of clipboardItems) {
+                const imageType = item.types.find(type => type.startsWith('image/'));
+                if (imageType) {
+                    const blob = await item.getType(imageType);
+                    const file = new File([blob], `colado-${Date.now()}.png`, { type: blob.type });
+                    imageFile = file;
+                    break;
+                }
+            }
+
+            if (imageFile) {
+                const newStagedFile = {
+                    id: `${imageFile.name}-${imageFile.lastModified}-${Math.random()}`,
+                    file: imageFile,
+                    previewUrl: URL.createObjectURL(imageFile),
+                };
+                setStagedFiles(prev => [...prev, newStagedFile]);
+                setTranscriptions([]);
+                setError(null);
+            } else {
+                setError('Nenhuma imagem encontrada na área de transferência.');
+            }
+        } catch (err) {
+            console.error('Falha ao colar da área de transferência:', err);
+            let message = 'Ocorreu um erro desconhecido. Verifique o console para mais detalhes.';
+            if (err instanceof Error) {
+                if (err.name === 'NotAllowedError') {
+                    message = 'A permissão para acessar a área de transferência foi negada. Por favor, permita o acesso nas configurações do seu navegador.';
+                } else {
+                    message = `Erro ao colar: ${err.message}. Verifique se o seu navegador tem permissão para acessar a área de transferência.`;
+                }
+            }
+            setError(message);
+        }
     };
 
     const handleTranscribe = useCallback(async () => {
@@ -462,8 +509,7 @@ const App: React.FC = () => {
                     <div className="flex flex-col space-y-4">
                         <h2 className="text-xl font-semibold text-gray-800">1. Fila de Upload</h2>
                         <div 
-                            className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-[#69AD49] transition-colors bg-white"
-                            onClick={() => fileInputRef.current?.click()}
+                            className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-white"
                         >
                              <input
                                 type="file"
@@ -473,11 +519,29 @@ const App: React.FC = () => {
                                 className="hidden"
                                 multiple
                             />
-                            <div className="text-gray-500">
+                            <div 
+                                className="text-gray-500 cursor-pointer hover:text-[#69AD49] transition-colors"
+                                onClick={() => fileInputRef.current?.click()}
+                            >
                                 <UploadIcon className="w-12 h-12 mx-auto mb-2" />
                                 <p>Clique para selecionar arquivos</p>
                                 <p className="text-sm">Você pode selecionar imagens e PDFs</p>
                             </div>
+                             <div className="my-4 relative">
+                                <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                                    <div className="w-full border-t border-gray-200" />
+                                </div>
+                                <div className="relative flex justify-center">
+                                    <span className="bg-white px-2 text-sm text-gray-500">ou</span>
+                                </div>
+                            </div>
+                             <button
+                                onClick={handlePasteFromClipboard}
+                                className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#69AD49] transition-colors"
+                            >
+                                <ClipboardIcon className="w-5 h-5 text-gray-500" />
+                                Colar da área de transferência
+                            </button>
                         </div>
 
                         {stagedFiles.length > 0 && (
