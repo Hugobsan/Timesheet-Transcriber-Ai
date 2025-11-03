@@ -38,6 +38,16 @@ export const PdfSelectionModal: React.FC<PdfSelectionModalProps> = ({
         });
     };
 
+    const handleSelectAll = () => {
+        const allSelected = pagePreviews.length > 0 && selectedPages.size === pagePreviews.length;
+        if (allSelected) {
+            setSelectedPages(new Set());
+        } else {
+            const allPageNumbers = new Set(Array.from({ length: pagePreviews.length }, (_, i) => i + 1));
+            setSelectedPages(allPageNumbers);
+        }
+    };
+
     const handleConfirm = useCallback(async () => {
         if (selectedPages.size === 0) return;
         setIsLoading(true);
@@ -100,6 +110,8 @@ export const PdfSelectionModal: React.FC<PdfSelectionModalProps> = ({
 
     if (!isOpen) return null;
 
+    const allSelected = pagePreviews.length > 0 && selectedPages.size === pagePreviews.length;
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4" aria-modal="true" role="dialog">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
@@ -151,17 +163,29 @@ export const PdfSelectionModal: React.FC<PdfSelectionModalProps> = ({
                     )}
                 </main>
                 
-                <footer className="flex items-center justify-end p-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
-                     <button onClick={onClose} className="px-4 py-2 text-gray-700 font-semibold rounded-md hover:bg-gray-200 transition-colors mr-3">
-                        Cancelar
-                    </button>
-                    <button 
-                        onClick={handleConfirm}
-                        disabled={selectedPages.size === 0 || isLoading}
-                        className="px-5 py-2 bg-[#69AD49] text-white font-semibold rounded-md hover:bg-[#5a9a3f] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                    >
-                        {isLoading ? 'Adicionando...' : `Adicionar ${selectedPages.size} Página(s)`}
-                    </button>
+                <footer className="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+                    <div>
+                        {pagePreviews.length > 0 && !isLoading && !error && (
+                            <button
+                                onClick={handleSelectAll}
+                                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                            >
+                                {allSelected ? 'Desmarcar Todas' : 'Selecionar Todas'}
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex items-center">
+                        <button onClick={onClose} className="px-4 py-2 text-gray-700 font-semibold rounded-md hover:bg-gray-200 transition-colors mr-3">
+                            Cancelar
+                        </button>
+                        <button 
+                            onClick={handleConfirm}
+                            disabled={selectedPages.size === 0 || isLoading}
+                            className="px-5 py-2 bg-[#69AD49] text-white font-semibold rounded-md hover:bg-[#5a9a3f] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                        >
+                            {isLoading ? 'Adicionando...' : `Adicionar ${selectedPages.size} Página(s)`}
+                        </button>
+                    </div>
                 </footer>
             </div>
         </div>

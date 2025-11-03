@@ -6,7 +6,7 @@ interface ImageEditorModalProps {
     isOpen: boolean;
     imageFile: File;
     onClose: () => void;
-    onConfirm: (editedFile: File) => void;
+    onConfirm: (editedFile: File, crop: Crop, rotation: number) => void;
 }
 
 // Function to get the cropped image data as a Blob
@@ -25,11 +25,13 @@ function getCroppedImg(
     const scaleX = image.naturalWidth / image.width;
     const scaleY = image.naturalHeight / image.height;
     
+    // Here, crop values are in pixels relative to the scaled image.
+    // We need to convert them to pixels relative to the original image size.
     const cropX = crop.x * scaleX;
     const cropY = crop.y * scaleY;
     const cropWidth = crop.width * scaleX;
     const cropHeight = crop.height * scaleY;
-
+    
     // Set canvas size to match the rotated crop size
     if (rotation === 90 || rotation === 270) {
         canvas.width = cropHeight;
@@ -124,13 +126,25 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({
         }
         setIsProcessing(true);
         try {
-            // Note: The getCroppedImg function works on the original image dimensions,
-            // so the visual scale doesn't need to be passed to it.
+            // Note: getCroppedImg works on original image dimensions by calculating scale.
+            // For the batch operation, we need a percentage-based crop.
+            // React-Crop provides pixel values in `crop`, so we convert them to percentage.
+            const { width, height } = imgRef.current;
+            const percentCrop: Crop = {
+                ...crop,
+                unit: '%',
+                x: (crop.x / width) * 100,
+                y: (crop.y / height) * 100,
+                width: (crop.width / width) * 100,
+                height: (crop.height / height) * 100,
+            };
+
             const blob = await getCroppedImg(imgRef.current, crop, rotation);
+
             if (blob) {
                 const newFileName = `${imageFile.name.split('.').slice(0, -1).join('.')}-edited.png`;
                 const editedFile = new File([blob], newFileName, { type: 'image/png' });
-                onConfirm(editedFile);
+                onConfirm(editedFile, percentCrop, rotation);
             }
         } catch (error) {
             console.error('Failed to process image:', error);

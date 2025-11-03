@@ -1,12 +1,15 @@
 
 
+
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import type { Crop } from 'react-image-crop';
 import useLocalStorage from './hooks/useLocalStorage';
 import { DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE } from './constants';
 import { transcribeImage } from './services/geminiService';
 import { Settings } from './components/Settings';
 import { SkeletonLoader } from './components/Spinner';
-import { UploadIcon, CopyIcon, CheckIcon, XCircleIcon, CropIcon, ChevronDownIcon, ClipboardIcon } from './components/icons';
+import { UploadIcon, CopyIcon, CheckIcon, XCircleIcon, CropIcon, ChevronDownIcon, ClipboardIcon, SparklesIcon } from './components/icons';
 import { PdfSelectionModal } from './components/PdfSelectionModal';
 import { ImageEditorModal } from './components/ImageEditorModal';
 import { ExportModal, ExportFormat } from './components/ExportModal';
@@ -61,6 +64,70 @@ const fileToGenerativePart = async (file: File) => {
     };
 };
 
+const applyCropToFile = async (
+  file: File,
+  crop: Crop,
+  rotation: number
+): Promise<File | null> => {
+  const image = new Image();
+  const objectUrl = URL.createObjectURL(file);
+  image.src = objectUrl;
+
+  return new Promise((resolve, reject) => {
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Failed to get canvas context'));
+        return;
+      }
+      
+      const cropX = (crop.x / 100) * image.naturalWidth;
+      const cropY = (crop.y / 100) * image.naturalHeight;
+      const cropWidth = (crop.width / 100) * image.naturalWidth;
+      const cropHeight = (crop.height / 100) * image.naturalHeight;
+      
+      if (rotation === 90 || rotation === 270) {
+        canvas.width = cropHeight;
+        canvas.height = cropWidth;
+      } else {
+        canvas.width = cropWidth;
+        canvas.height = cropHeight;
+      }
+
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.drawImage(
+          image,
+          cropX,
+          cropY,
+          cropWidth,
+          cropHeight,
+          -cropWidth / 2,
+          -cropHeight / 2,
+          cropWidth,
+          cropHeight
+      );
+
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(objectUrl);
+        if (!blob) {
+          reject(new Error('Canvas is empty'));
+          return;
+        }
+        const newFileName = `${file.name.split('.').slice(0, -1).join('.')}-cropped.png`;
+        const newFile = new File([blob], newFileName, { type: 'image/png' });
+        resolve(newFile);
+      }, 'image/png', 1);
+    };
+    image.onerror = (err) => {
+      URL.revokeObjectURL(objectUrl);
+      reject(err);
+    };
+  });
+};
+
+
 const App: React.FC = () => {
     // Persisted settings
     const [persistedApiKey, setPersistedApiKey] = useLocalStorage<string>('gemini_api_key', '');
@@ -88,6 +155,8 @@ const App: React.FC = () => {
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [isFaqOpen, setIsFaqOpen] = useState(false);
     const [collapsedResults, setCollapsedResults] = useState<Set<string>>(new Set());
+    const [savedCrop, setSavedCrop] = useState<{ crop: Crop; rotation: number; sourceId: string } | null>(null);
+    const [isBatchCropping, setIsBatchCropping] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -202,8 +271,10 @@ const App: React.FC = () => {
         setCurrentFileToEdit(null);
     };
     
-    const handleImageEdited = (editedFile: File) => {
+    const handleImageEdited = (editedFile: File, crop: Crop, rotation: number) => {
         if (!currentFileToEdit) return;
+
+        setSavedCrop({ crop, rotation, sourceId: currentFileToEdit.id });
     
         setStagedFiles(prev => {
             const oldFile = prev.find(sf => sf.id === currentFileToEdit.id);
@@ -219,6 +290,77 @@ const App: React.FC = () => {
         });
     
         handleCloseEditor();
+    };
+
+    const handleApplySavedCropToOne = async (fileId: string) => {
+        if (!savedCrop) return;
+
+        const targetFile = stagedFiles.find(sf => sf.id === fileId);
+        if (!targetFile) return;
+
+        try {
+            const newFile = await applyCropToFile(targetFile.file, savedCrop.crop, savedCrop.rotation);
+            if (newFile) {
+                setStagedFiles(prev => {
+                    const oldFile = prev.find(sf => sf.id === fileId);
+                    if (oldFile) {
+                        URL.revokeObjectURL(oldFile.previewUrl);
+                    }
+                    return prev.map(sf => 
+                        sf.id === fileId 
+                        ? { ...sf, file: newFile, previewUrl: URL.createObjectURL(newFile) }
+                        : sf
+                    );
+                });
+            }
+        } catch (err) {
+            console.error(`Failed to apply crop to ${targetFile.file.name}`, err);
+            setError(`Falha ao aplicar o recorte em ${targetFile.file.name}.`);
+        }
+    };
+
+    const handleApplyCropToAll = async () => {
+        if (!savedCrop || stagedFiles.length < 2) return;
+
+        setIsBatchCropping(true);
+        try {
+            const updates = new Map<string, { file: File, previewUrl: string }>();
+
+            const cropPromises = stagedFiles.map(async (sf) => {
+                // Apply crop only to files that are not the source
+                if (sf.id !== savedCrop.sourceId) {
+                    const newFile = await applyCropToFile(sf.file, savedCrop.crop, savedCrop.rotation);
+                    if (newFile) {
+                        updates.set(sf.id, { file: newFile, previewUrl: URL.createObjectURL(newFile) });
+                    }
+                }
+            });
+
+            await Promise.all(cropPromises);
+
+            // Apply updates
+            setStagedFiles(prev => {
+                // Revoke old URLs that are being replaced
+                prev.forEach(sf => {
+                    if (updates.has(sf.id)) {
+                        URL.revokeObjectURL(sf.previewUrl);
+                    }
+                });
+
+                return prev.map(sf => {
+                    const update = updates.get(sf.id);
+                    return update ? { ...sf, ...update } : sf;
+                });
+            });
+            
+            setSavedCrop(null); // Clear saved crop
+
+        } catch (err) {
+            console.error("Batch crop failed:", err);
+            setError("Ocorreu um erro ao aplicar o recorte em lote.");
+        } finally {
+            setIsBatchCropping(false);
+        }
     };
 
     const toggleCollapse = (id: string) => {
@@ -464,6 +606,13 @@ const App: React.FC = () => {
                                 </details>
                                 <hr className="my-2"/>
                                 <details>
+                                    <summary className="font-semibold cursor-pointer text-gray-700">Como funciona o recorte em lote?</summary>
+                                    <p className="mt-2 text-gray-600">
+                                        Ao cortar uma imagem da fila, esse recorte é salvo como um modelo. Em seguida, um botão "Aplicar em Todos" aparecerá, permitindo que você aplique o mesmo recorte a todas as outras imagens na fila com um único clique. Isso economiza muito tempo se você tiver várias digitalizações com o mesmo layout.
+                                    </p>
+                                </details>
+                                <hr className="my-2"/>
+                                <details>
                                     <summary className="font-semibold cursor-pointer text-gray-700">Quais são os formatos de exportação disponíveis?</summary>
                                     <p className="mt-2 text-gray-600">
                                         Após a transcrição, clique em "Exportar Tudo". Você poderá escolher entre:
@@ -545,29 +694,65 @@ const App: React.FC = () => {
                         </div>
 
                         {stagedFiles.length > 0 && (
-                            <div className="space-y-3 bg-white p-3 rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
-                                {stagedFiles.map((sf) => (
-                                    <div key={sf.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
-                                        <div className="flex items-center gap-3 overflow-hidden">
-                                            <img src={sf.previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded-md flex-shrink-0"/>
-                                            <span className="text-sm text-gray-700 truncate" title={sf.file.name}>{sf.file.name}</span>
-                                        </div>
+                             <>
+                                {savedCrop && stagedFiles.length > 1 && (
+                                    <div className="my-2 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between animate-fade-in">
                                         <div className="flex items-center gap-2">
-                                            <button onClick={() => handleOpenEditor(sf.id)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="Cortar/Girar Imagem">
-                                                <CropIcon className="w-5 h-5"/>
+                                            <SparklesIcon className="w-5 h-5 text-green-700"/>
+                                            <span className="text-sm font-medium text-green-800">Recorte salvo pronto para ser aplicado.</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                onClick={() => setSavedCrop(null)}
+                                                className="text-xs font-medium text-gray-600 hover:text-gray-900"
+                                                title="Limpar recorte salvo"
+                                            >
+                                                Limpar
                                             </button>
-                                            <button onClick={() => handleRemoveFile(sf.id)} className="text-gray-400 hover:text-red-600 transition-colors p-1" title="Remover Arquivo">
-                                                <XCircleIcon className="w-6 h-6"/>
+                                            <button
+                                                onClick={handleApplyCropToAll}
+                                                disabled={isBatchCropping}
+                                                className="px-3 py-1.5 text-sm bg-[#1B5E20] text-white font-semibold rounded-md hover:bg-opacity-90 disabled:bg-gray-300 transition-colors flex items-center"
+                                            >
+                                                 {isBatchCropping && <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="http://www.w3.org/2000/svg"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
+                                                {isBatchCropping ? 'Aplicando...' : 'Aplicar em Todos'}
                                             </button>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+                                )}
+                                <div className="space-y-3 bg-white p-3 rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
+                                    {stagedFiles.map((sf) => (
+                                        <div key={sf.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
+                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                <img src={sf.previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded-md flex-shrink-0"/>
+                                                <span className="text-sm text-gray-700 truncate" title={sf.file.name}>{sf.file.name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {savedCrop && sf.id !== savedCrop.sourceId && (
+                                                    <button
+                                                        onClick={() => handleApplySavedCropToOne(sf.id)}
+                                                        className="text-gray-400 hover:text-green-600 transition-colors p-1"
+                                                        title="Reaproveitar Recorte"
+                                                    >
+                                                        <SparklesIcon className="w-5 h-5" />
+                                                    </button>
+                                                )}
+                                                <button onClick={() => handleOpenEditor(sf.id)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="Cortar/Girar Imagem">
+                                                    <CropIcon className="w-5 h-5"/>
+                                                </button>
+                                                <button onClick={() => handleRemoveFile(sf.id)} className="text-gray-400 hover:text-red-600 transition-colors p-1" title="Remover Arquivo">
+                                                    <XCircleIcon className="w-6 h-6"/>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
                         )}
                         
                         <button
                             onClick={handleTranscribe}
-                            disabled={stagedFiles.length === 0 || processingStatus.isProcessing}
+                            disabled={stagedFiles.length === 0 || processingStatus.isProcessing || isBatchCropping}
                             className="w-full bg-[#69AD49] text-white font-bold py-3 px-4 rounded-md hover:bg-[#5a9a3f] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                         >
                              {processingStatus.isProcessing && <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="http://www.w3.org/2000/svg">
