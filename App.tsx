@@ -1,7 +1,5 @@
 
 
-
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { Crop } from 'react-image-crop';
 import useLocalStorage from './hooks/useLocalStorage';
@@ -15,16 +13,18 @@ import { ImageEditorModal } from './components/ImageEditorModal';
 import { ExportModal, ExportFormat } from './components/ExportModal';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 
-// Add marked, pdfjs, and XLSX to the window interface for TypeScript
+// Add marked, and XLSX to the window interface for TypeScript
 declare global {
     interface Window {
         marked: {
             parse(markdownString: string, options?: object): string;
         };
-        pdfjsLib: any;
         XLSX: any;
     }
 }
+
+// Configure PDF.js worker at the module level to ensure it's set before any usage.
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.mjs';
 
 interface StagedFile {
     id: string;
@@ -157,15 +157,9 @@ const App: React.FC = () => {
     const [collapsedResults, setCollapsedResults] = useState<Set<string>>(new Set());
     const [savedCrop, setSavedCrop] = useState<{ crop: Crop; rotation: number; sourceId: string } | null>(null);
     const [isBatchCropping, setIsBatchCropping] = useState(false);
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        // Configure PDF.js worker
-        if (window.pdfjsLib) {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.mjs';
-        }
-    }, []);
 
     useEffect(() => {
         // Sync temp settings when persisted ones change
@@ -196,15 +190,25 @@ const App: React.FC = () => {
     
     const allAvailableModels = Array.from(new Set(['gemini-flash-latest', ...availableModels]));
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = event.target.files;
-        if (!files) return;
+    const handleIncomingFiles = useCallback((incomingFiles: FileList | null) => {
+        if (!incomingFiles || incomingFiles.length === 0) return;
 
-        // Fix: Explicitly type allFiles to ensure correct type inference for file properties.
-        const allFiles: File[] = Array.from(files);
-        const imageFiles = allFiles.filter(file => file.type.startsWith('image/'));
-        const pdfFiles = allFiles.filter(file => file.type === 'application/pdf');
-        
+        const filesArray = Array.from(incomingFiles);
+        const acceptedFiles = filesArray.filter(
+            file => file.type.startsWith('image/') || file.type === 'application/pdf'
+        );
+
+        if (acceptedFiles.length < filesArray.length) {
+            alert('Alguns arquivos foram ignorados por não serem do tipo imagem ou PDF.');
+        }
+
+        if (acceptedFiles.length === 0) {
+            return;
+        }
+
+        const imageFiles = acceptedFiles.filter(file => file.type.startsWith('image/'));
+        const pdfFiles = acceptedFiles.filter(file => file.type === 'application/pdf');
+
         if (pdfFiles.length > 1) {
             alert('Você selecionou múltiplos PDFs. Apenas o primeiro será processado. Por favor, envie os outros arquivos novamente após concluir a seleção de páginas do PDF atual.');
         }
@@ -227,11 +231,45 @@ const App: React.FC = () => {
 
         setTranscriptions([]);
         setError(null);
+    }, []);
 
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        handleIncomingFiles(event.target.files);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
     };
+    
+    const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+            setIsDraggingOver(true);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.currentTarget.contains(e.relatedTarget as Node)) {
+            return;
+        }
+        setIsDraggingOver(false);
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingOver(false);
+        handleIncomingFiles(e.dataTransfer.files);
+        e.dataTransfer.clearData();
+    };
+
 
     const handlePdfPagesSelected = (pageFiles: File[]) => {
         const newStagedFiles = pageFiles.map(file => ({
@@ -658,7 +696,11 @@ const App: React.FC = () => {
                     <div className="flex flex-col space-y-4">
                         <h2 className="text-xl font-semibold text-gray-800">1. Fila de Upload</h2>
                         <div 
-                            className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-white"
+                            className={`relative border-2 border-dashed rounded-lg p-6 text-center bg-white transition-colors ${isDraggingOver ? 'border-[#69AD49] bg-green-50' : 'border-gray-300'}`}
+                            onDragEnter={handleDragEnter}
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop}
                         >
                              <input
                                 type="file"
@@ -673,7 +715,7 @@ const App: React.FC = () => {
                                 onClick={() => fileInputRef.current?.click()}
                             >
                                 <UploadIcon className="w-12 h-12 mx-auto mb-2" />
-                                <p>Clique para selecionar arquivos</p>
+                                <p>Clique ou arraste arquivos para cá</p>
                                 <p className="text-sm">Você pode selecionar imagens e PDFs</p>
                             </div>
                              <div className="my-4 relative">
